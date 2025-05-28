@@ -23,7 +23,7 @@
         }
 
         h1 {
-            font-size: 2em;
+            font-size: 2em; /* Adjusted for general viewing */
             color: #333;
             margin-top: 15px;
             margin-bottom: 10px;
@@ -31,7 +31,7 @@
         #speechStatus {
             font-size: 0.9em;
             color: #555;
-            min-height: 2.5em;
+            min-height: 2.5em; /* More space for messages */
             margin-bottom: 15px;
             padding: 5px;
             line-height: 1.4;
@@ -43,9 +43,9 @@
         }
 
         #sentence {
-            font-size: 28px;
+            font-size: 28px; /* Adjusted for general viewing */
             line-height: 2.4;
-            max-width: 90%;
+            max-width: 90%; /* Use percentage for better responsiveness */
             margin: 15px auto;
             text-align: right;
             padding: 12px;
@@ -78,15 +78,15 @@
         }
 
         .controls button {
-            padding: 12px 20px;
-            font-size: 20px;
+            padding: 12px 20px; /* Larger tap target */
+            font-size: 20px; /* Adjusted */
             cursor: pointer;
             border: none;
             background: #007BFF;
             color: white;
             border-radius: 10px;
             margin: 10px 5px;
-            min-width: 140px;
+            min-width: 140px; /* Adjusted */
             line-height: 1.2;
             transition: background-color 0.3s ease;
         }
@@ -107,14 +107,16 @@
             background-color: #495057;
         }
 
+
         .ayah-number {
             color: #007BFF;
-            font-size: 0.75em;
+            font-size: 0.75em; /* Adjusted */
             margin: 0 3px;
             display: inline;
             visibility: visible !important;
         }
 
+        /* Simpler media queries for general font scaling */
         @media (max-width: 600px) {
             h1 { font-size: 1.8em; }
             #sentence { font-size: 24px; line-height: 2.3; }
@@ -164,6 +166,7 @@
 
     let currentWordIndex = 0;
     let isRecognizing = false;
+    let accumulatedFinalTranscript = "";
 
     function normalizeArabic(text) {
         if (!text) return "";
@@ -183,41 +186,34 @@
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition;
 
-    function updateSpeechStatus() {
-        if (!isRecognizing) return; // Don't update if not listening
-
-        if (currentWordIndex < wordSpans.length) {
-            speechStatus.textContent = "المتوقع: " + wordSpans[currentWordIndex].textContent;
-        } else {
-            speechStatus.textContent = "أحسنت! لقد أكملت السورة.";
-        }
-    }
-
-
     if (SpeechRecognition) {
         recognition = new SpeechRecognition();
-        recognition.continuous = true; 
+        recognition.continuous = true; // Key for potentially longer listening sessions
         recognition.interimResults = true;
-        recognition.lang = 'ar-SA'; 
+        recognition.lang = 'ar-SA'; // Standard Arabic, good for Quran
 
         recognition.onstart = () => {
             console.log("SpeechRecognition.onstart: Recognition started.");
             isRecognizing = true;
+            // accumulatedFinalTranscript is not reset here, allowing carry-over if onstart is called after a brief stop
             speechButton.textContent = "🔴 جاري الاستماع...";
+            speechStatus.textContent = "تحدث الآن...";
             speechButton.style.backgroundColor = '#dc3545';
-            updateSpeechStatus(); // Show current expected word
         };
 
         recognition.onend = () => {
             console.log("SpeechRecognition.onend: Recognition ended.");
-            isRecognizing = false;
+            isRecognizing = false; 
             speechButton.textContent = "🎤 ابدأ التحدث";
             speechButton.style.backgroundColor = '#007BFF';
-
-            if (currentWordIndex >= wordSpans.length) {
-                 speechStatus.textContent = "أحسنت! مكتمل. اضغط \"ابدأ\" للبدء من جديد.";
-            } else { 
-                 speechStatus.textContent = "توقف الاستماع. اضغط \"ابدأ\" للمتابعة."; // Simplified message
+            if (currentWordIndex < wordSpans.length && currentWordIndex > 0) { // Stopped mid-way
+                 speechStatus.textContent = "توقف الاستماع. اضغط لمتابعة.";
+            } else if (currentWordIndex === 0 && !accumulatedFinalTranscript.trim()) { // Stopped before starting or no speech at all
+                 speechStatus.textContent = "اضغط \"ابدأ\" وتحدث";
+            } else if (currentWordIndex >= wordSpans.length) { // Completed
+                 speechStatus.textContent = "أحسنت! مكتمل. اضغط للبدء من جديد.";
+            } else { // Stopped with some unprocessed transcript or at beginning
+                 speechStatus.textContent = "توقف الاستماع. اضغط لمتابعة.";
             }
         };
 
@@ -225,84 +221,108 @@
             console.error("SpeechRecognition.onerror:", event.error, event.message);
             let errorMsg = "حدث خطأ في التعرف الصوتي: " + event.error;
             if (event.error === 'no-speech') {
-                errorMsg = "لم يتم اكتشاف أي كلام. حاول التحدث بوضوح أو اضغط \"ابدأ\" للمحاولة مرة أخرى.";
+                errorMsg = "لم يتم اكتشاف أي كلام. حاول التحدث بوضوح.";
             } else if (event.error === 'audio-capture') {
                 errorMsg = "مشكلة في التقاط الصوت من الميكروفون.";
             } else if (event.error === 'not-allowed') {
-                errorMsg = "تم رفض إذن استخدام الميكروفون.";
+                errorMsg = "تم رفض إذن استخدام الميكروفون. يرجى السماح بالوصول في إعدادات المتصفح/الهاتف لهذا الموقع.";
             } else if (event.error === 'network') {
-                errorMsg = "مشكلة في الشبكة.";
+                errorMsg = "مشكلة في الشبكة تمنع الاتصال بخدمة التعرف الصوتي.";
             } else if (event.error === 'aborted') {
-                 errorMsg = "توقف الاستماع."; 
+                 errorMsg = "توقف الاستماع."; // Often when stop() is called
             } else if (event.error === 'service-not-allowed'){
-                 errorMsg = "خدمة التعرف الصوتي غير مسموح بها.";
+                 errorMsg = "خدمة التعرف الصوتي غير مسموح بها (قد يكون بسبب إعدادات الجهاز أو المتصفح).";
             }
+
             speechStatus.textContent = errorMsg;
-            // onend usually follows, which will update button state
+            // isRecognizing will be set to false by onend, which typically follows an error
+            // The button and status will also be updated by onend
         };
 
         recognition.onresult = (event) => {
             let interimTranscript = '';
-            let newFinalUtterance = ''; 
-
+            let newFinalSpeech = ''; // Collect new final parts from this event
             for (let i = event.resultIndex; i < event.results.length; ++i) {
                 const transcriptPart = event.results[i][0].transcript;
                 if (event.results[i].isFinal) {
-                    newFinalUtterance += transcriptPart + " "; 
+                    newFinalSpeech += transcriptPart + " ";
                 } else {
                     interimTranscript += transcriptPart;
                 }
             }
             
+            if (newFinalSpeech) { // If there's new final speech, add it to the buffer
+                accumulatedFinalTranscript += newFinalSpeech;
+                console.log("Accumulated transcript updated:", accumulatedFinalTranscript);
+            }
+
             if (interimTranscript && isRecognizing) {
                 speechStatus.textContent = "لحظة... " + interimTranscript;
             }
 
-            if (newFinalUtterance.trim() && isRecognizing) {
-                const spokenWordsInThisUtterance = newFinalUtterance.trim().split(/\s+/);
-                console.log("Processing final utterance:", spokenWordsInThisUtterance);
+            // Process the accumulated transcript if it has content
+            if (accumulatedFinalTranscript.trim() && currentWordIndex < wordSpans.length && isRecognizing) {
+                let wordsToProcess = accumulatedFinalTranscript.trim().split(/\s+/);
+                let processedWordsCount = 0; // How many words from the buffer were successfully processed
 
-                for (let i = 0; i < spokenWordsInThisUtterance.length; i++) {
-                    let spokenWord = spokenWordsInThisUtterance[i];
-                    if (currentWordIndex >= wordSpans.length || !isRecognizing) break; 
+                for (let i = 0; i < wordsToProcess.length; i++) {
+                    if (currentWordIndex >= wordSpans.length) break; // Sura complete
 
+                    const spokenWord = wordsToProcess[i];
                     const normalizedSpokenWord = normalizeArabic(spokenWord);
-                    if (!normalizedSpokenWord) continue; 
+                    if (!normalizedSpokenWord) { // Should not happen if split by \s+ but good practice
+                        processedWordsCount++;
+                        continue;
+                    }
 
                     const targetWordSpan = wordSpans[currentWordIndex];
                     const targetWordText = targetWordSpan.dataset.word;
 
                     if (targetWordText && normalizedSpokenWord === targetWordText) {
-                        // --- Match ---
                         const previouslyHighlighted = document.querySelector('#sentence .highlight');
                         if (previouslyHighlighted && previouslyHighlighted !== targetWordSpan) {
                             previouslyHighlighted.classList.remove('highlight');
                             previouslyHighlighted.classList.add('spoken');
                         }
-                        targetWordSpan.classList.remove('spoken'); 
+                        targetWordSpan.classList.remove('spoken');
                         targetWordSpan.classList.add('highlight');
                         currentWordIndex++;
+                        processedWordsCount++; // This word from buffer was processed
                         
-                        console.log(`Match: "${spokenWord}". currentWordIndex is now ${currentWordIndex}`);
-                        updateSpeechStatus(); // Update to next expected word or completion
-
-                        if (currentWordIndex >= wordSpans.length) {
-                            if (isRecognizing) {
-                                recognition.stop(); 
-                            }
-                            break; 
+                        if (currentWordIndex < wordSpans.length && isRecognizing) {
+                             speechStatus.textContent = "الكلمة التالية...";
                         }
                     } else {
-                        // --- Mismatch ---
-                        // This spoken word is ignored. currentWordIndex does NOT advance.
-                        // The system continues to expect the same targetWord.
-                        // The status will be updated by updateSpeechStatus() at the end or by the next match.
-                        console.log(`Skipped spoken word "${spokenWord}" (normalized: "${normalizedSpokenWord}") as it doesn't match current target "${targetWordSpan.textContent}" (normalized: "${targetWordText}").`);
+                        // Mismatch. Stop trying to match further words from *this current buffer* against the *current targetWord*.
+                        // The mismatched part of the buffer will remain for now.
+                        // If the very first word in the buffer doesn't match, the buffer won't shrink this cycle.
+                        console.log(`Mismatch: Spoken buffer starts with "${spokenWord}" (normalized: "${normalizedSpokenWord}"), expected "${targetWordText}". Buffer will be re-evaluated with next speech input.`);
+                        break; 
                     }
                 }
-                 // After processing the whole utterance, if still listening and not complete, ensure status is correct.
-                if (isRecognizing && currentWordIndex < wordSpans.length) {
-                    updateSpeechStatus();
+
+                // *** MODIFICATION START ***
+                // Remove only the processed words from the beginning of the accumulated transcript.
+                if (processedWordsCount > 0) {
+                    accumulatedFinalTranscript = wordsToProcess.slice(processedWordsCount).join(" ").trim();
+                    if (accumulatedFinalTranscript) accumulatedFinalTranscript += " "; // Add trailing space if not empty
+                    console.log("Accumulated transcript after processing:", accumulatedFinalTranscript);
+                }
+                // If processedWordsCount is 0 (no match at the start of the buffer), accumulatedFinalTranscript remains unchanged,
+                // allowing new speech to be appended to it, potentially forming a match later.
+                // *** MODIFICATION END ***
+
+
+                if (currentWordIndex >= wordSpans.length) {
+                    speechStatus.textContent = "أحسنت! لقد أكملت السورة.";
+                    accumulatedFinalTranscript = ""; // Clear buffer on completion
+                    if (isRecognizing) {
+                        console.log("All words matched, stopping recognition.");
+                        recognition.stop(); 
+                    }
+                } else if (isRecognizing && !interimTranscript) {
+                    // If no interim transcript and still listening, update status to current expectation
+                    speechStatus.textContent = "الكلمة التالية...";
                 }
             }
         };
@@ -315,18 +335,28 @@
     }
 
     function toggleSpeechRecognition() {
-        if (!SpeechRecognition) return;
+        if (!SpeechRecognition) {
+            console.warn("toggleSpeechRecognition: SpeechRecognition API not supported.");
+            return;
+        }
+        console.log(`toggleSpeechRecognition called. Current state: isRecognizing = ${isRecognizing}`);
 
         if (isRecognizing) {
+            console.log("toggleSpeechRecognition: Currently recognizing, calling recognition.stop().");
             recognition.stop(); 
-        } else { 
+        } else {
             if (currentWordIndex >= wordSpans.length) {
+                console.log("toggleSpeechRecognition: All words done, resetting activity.");
                 resetActivity(); 
             }
+            console.log("toggleSpeechRecognition: Not recognizing, attempting recognition.start().");
             try {
+                // accumulatedFinalTranscript is intentionally NOT cleared here if recognition is just paused
+                // This allows resuming with the existing buffer if recognition stopped briefly.
+                // If a full reset is needed (e.g. Sura complete), resetActivity handles clearing it.
                 recognition.start(); 
             } catch (e) {
-                console.error("Error starting recognition:", e);
+                console.error("toggleSpeechRecognition: Error calling recognition.start():", e);
                 speechStatus.textContent = "خطأ في بدء التعرف: " + e.message;
                 isRecognizing = false; 
                 speechButton.textContent = "🎤 ابدأ التحدث";
@@ -336,22 +366,26 @@
     }
 
     function resetActivity() {
+        console.log("resetActivity called.");
         currentWordIndex = 0;
-        
+        accumulatedFinalTranscript = ""; // Clear buffer on reset
         wordSpans.forEach(span => {
-            span.style.visibility = 'hidden'; 
-            span.classList.remove('highlight', 'spoken');
+            span.style.visibility = 'hidden';
+            span.classList.remove('highlight', 'spoken', 'revealed');
         });
         
         if (isRecognizing) {
+            console.log("resetActivity: Recognition was active, calling recognition.stop().");
             recognition.stop(); 
         } else {
+            isRecognizing = false; 
             speechButton.textContent = "🎤 ابدأ التحدث";
             speechButton.style.backgroundColor = '#007BFF';
             speechStatus.textContent = "اضغط \"ابدأ\" وتحدث";
         }
     }
 
+    // Initial setup
     resetActivity();
     console.log("Page loaded. Initial reset done.");
 
