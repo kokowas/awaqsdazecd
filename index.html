@@ -166,9 +166,7 @@
 
     let currentWordIndex = 0;
     let isRecognizing = false;
-    let accumulatedFinalTranscript = "";
-    let userManuallyStopped = false; // Flag to indicate if user explicitly stopped recognition
-    let restartTimeoutId = null; // To manage the timeout for auto-restarting
+    let accumulatedFinalTranscript = ""; // Buffer for final transcript parts
 
     function normalizeArabic(text) {
         if (!text) return "";
@@ -190,80 +188,31 @@
 
     if (SpeechRecognition) {
         recognition = new SpeechRecognition();
-        recognition.continuous = true; // Keep listening
-        recognition.interimResults = true; // Get results faster
-        recognition.lang = 'ar-SA';
+        recognition.continuous = true; // Key for "long time" listening. Browser might still timeout on silence.
+        recognition.interimResults = true;
+        recognition.lang = 'ar-SA'; 
 
         recognition.onstart = () => {
             console.log("SpeechRecognition.onstart: Recognition started.");
             isRecognizing = true;
-            userManuallyStopped = false; // Reset flag as recognition is actively starting
-            accumulatedFinalTranscript = ""; // Clear previous partials
+            // accumulatedFinalTranscript is managed in onresult or cleared before new start in toggleSpeechRecognition
             speechButton.textContent = "🔴 جاري الاستماع...";
             speechStatus.textContent = "تحدث الآن...";
             speechButton.style.backgroundColor = '#dc3545';
         };
 
         recognition.onend = () => {
-            console.log("SpeechRecognition.onend: Recognition ended. userManuallyStopped:", userManuallyStopped, "currentWordIndex:", currentWordIndex, "isRecognizing (before onend sets it false):", isRecognizing);
-            const wasRecognizingBeforeEnd = isRecognizing; // Capture state
-            isRecognizing = false; // Recognition has officially stopped
-
-            // Always update button to "start" state initially; onstart will change it if auto-restarted successfully
+            console.log("SpeechRecognition.onend: Recognition ended.");
+            isRecognizing = false;
             speechButton.textContent = "🎤 ابدأ التحدث";
             speechButton.style.backgroundColor = '#007BFF';
 
-            clearTimeout(restartTimeoutId); // Clear any previously scheduled restart
-
-            if (!userManuallyStopped && currentWordIndex < wordSpans.length) {
-                console.log("onend: Conditions met for auto-restart. Scheduling.");
-                speechStatus.textContent = "لحظة، يتم إعادة تشغيل الاستماع..."; // Feedback for auto-restart attempt
-                
-                restartTimeoutId = setTimeout(() => {
-                    // Check conditions *again* inside timeout, as state might have changed by user action
-                    if (!isRecognizing && !userManuallyStopped && currentWordIndex < wordSpans.length) {
-                        console.log("onend (timeout): Re-checking conditions - still met. Starting recognition.");
-                        try {
-                            recognition.start(); // This will trigger onstart if successful
-                        } catch (e) {
-                            console.error("Auto-restart failed in timeout:", e);
-                            speechStatus.textContent = "فشل إعادة تشغيل الاستماع التلقائي: " + e.message;
-                            // Ensure UI reflects definite stop state
-                            speechButton.textContent = "🎤 ابدأ التحدث";
-                            speechButton.style.backgroundColor = '#007BFF';
-                            userManuallyStopped = true; // Prevent further attempts if start fails critically
-                        }
-                    } else {
-                        console.log("onend (timeout): Conditions for auto-restart no longer met (e.g., user manually stopped/reset or completed).");
-                        // If not restarting, ensure status reflects the actual situation
-                        if (userManuallyStopped) {
-                           speechStatus.textContent = (currentWordIndex === 0) ? "اضغط \"ابدأ\" وتحدث" : "تم إيقاف الاستماع. اضغط لمتابعة.";
-                        } else if (currentWordIndex >= wordSpans.length) {
-                           speechStatus.textContent = "أحسنت! مكتمل. اضغط للبدء من جديد.";
-                        } else {
-                           speechStatus.textContent = "توقف الاستماع."; // General fallback
-                        }
-                    }
-                }, 250); // 250ms delay before attempting restart
-            } else {
-                // This block executes if user manually stopped, or Sura is complete, or a critical error set userManuallyStopped=true
-                console.log("onend: Not auto-restarting. Updating final status based on state.");
-                if (currentWordIndex >= wordSpans.length) {
-                    speechStatus.textContent = "أحسنت! مكتمل. اضغط للبدء من جديد.";
-                } else if (userManuallyStopped) { 
-                    if (currentWordIndex > 0) {
-                        speechStatus.textContent = "توقف الاستماع. اضغط لمتابعة.";
-                    } else { // currentWordIndex === 0, implies reset or stopped at very beginning
-                        speechStatus.textContent = "اضغط \"ابدأ\" وتحدث";
-                    }
-                } else {
-                    // Fallback, should be less common now.
-                    // Could happen if recognition ends without userManuallyStopped being true AND Sura not complete,
-                    // but auto-restart conditions were somehow not met (e.g. wasRecognizingBeforeEnd was false unexpectedly)
-                    speechStatus.textContent = "اضغط \"ابدأ\" وتحدث";
-                }
-                // userManuallyStopped remains as it was, reflecting the reason for not restarting.
-                // It will be reset to false by the next successful 'onstart' or 'toggleSpeechRecognition' (when starting).
+            if (currentWordIndex >= wordSpans.length) {
+                 speechStatus.textContent = "أحسنت! مكتمل. اضغط \"ابدأ\" للبدء من جديد.";
+            } else if (currentWordIndex > 0 && currentWordIndex < wordSpans.length) { 
+                 speechStatus.textContent = "توقف الاستماع. اضغط \"ابدأ\" للمتابعة من: " + wordSpans[currentWordIndex].textContent;
+            } else { // currentWordIndex === 0, or completed then reset and not started.
+                 speechStatus.textContent = "اضغط \"ابدأ\" وتحدث";
             }
         };
 
@@ -271,43 +220,30 @@
             console.error("SpeechRecognition.onerror:", event.error, event.message);
             let errorMsg = "حدث خطأ في التعرف الصوتي: " + event.error;
             if (event.error === 'no-speech') {
-                errorMsg = "لم يتم اكتشاف أي كلام. حاول التحدث بوضوح.";
-                // For 'no-speech', we don't set userManuallyStopped=true, allowing onend to attempt auto-restart.
+                errorMsg = "لم يتم اكتشاف أي كلام. حاول التحدث بوضوح. اضغط \"ابدأ\" للمحاولة مرة أخرى.";
             } else if (event.error === 'audio-capture') {
                 errorMsg = "مشكلة في التقاط الصوت من الميكروفون.";
-                userManuallyStopped = true; // Critical error, prevent auto-restart loop
             } else if (event.error === 'not-allowed') {
                 errorMsg = "تم رفض إذن استخدام الميكروفون. يرجى السماح بالوصول في إعدادات المتصفح/الهاتف لهذا الموقع.";
-                userManuallyStopped = true; // Critical error
             } else if (event.error === 'network') {
                 errorMsg = "مشكلة في الشبكة تمنع الاتصال بخدمة التعرف الصوتي.";
-                userManuallyStopped = true; // Critical error
             } else if (event.error === 'aborted') {
-                 errorMsg = "توقف الاستماع."; // Often when stop() is called, or sometimes by browser.
-                 // If aborted by user (via stop()), userManuallyStopped will be true.
-                 // If aborted by browser after silence, userManuallyStopped will be false, onend will try to restart.
+                 errorMsg = "توقف الاستماع."; 
             } else if (event.error === 'service-not-allowed'){
-                 errorMsg = "خدمة التعرف الصوتي غير مسموح بها (قد يكون بسبب إعدادات الجهاز أو المتصفح).";
-                 userManuallyStopped = true; // Critical error
-            } else {
-                userManuallyStopped = true; // For other unhandled errors, assume critical.
+                 errorMsg = "خدمة التعرف الصوتي غير مسموح بها.";
             }
-            
             speechStatus.textContent = errorMsg;
-            // isRecognizing will be set to false by onend, which always fires after an error according to spec.
-            // UI updates for button will also be handled by onend.
-            // If a critical error sets userManuallyStopped = true, onend will not auto-restart.
-            console.log(`onerror: userManuallyStopped is now ${userManuallyStopped} due to error: ${event.error}`);
+            // onend will usually fire after an error, setting isRecognizing = false and updating button.
         };
 
         recognition.onresult = (event) => {
             let interimTranscript = '';
-            let finalTranscriptSegment = ''; // To process only new final parts
+            let newFinalUtterance = ''; // Collect all new final segments from this event
 
             for (let i = event.resultIndex; i < event.results.length; ++i) {
                 const transcriptPart = event.results[i][0].transcript;
                 if (event.results[i].isFinal) {
-                    finalTranscriptSegment += transcriptPart + " ";
+                    newFinalUtterance += transcriptPart + " ";
                 } else {
                     interimTranscript += transcriptPart;
                 }
@@ -317,19 +253,24 @@
                 speechStatus.textContent = "لحظة... " + interimTranscript;
             }
 
-            // Process the accumulated final transcript segment
-            if (finalTranscriptSegment && currentWordIndex < wordSpans.length && isRecognizing) {
-                accumulatedFinalTranscript += finalTranscriptSegment; // Add new final part to buffer
-                console.log("Processing accumulated final transcript:", accumulatedFinalTranscript);
-                
-                const wordsToProcess = accumulatedFinalTranscript.trim().split(/\s+/); // Split by one or more spaces
-                let processedWordsFromBuffer = 0;
+            if (newFinalUtterance.trim() && currentWordIndex < wordSpans.length && isRecognizing) {
+                accumulatedFinalTranscript += newFinalUtterance.trim() + " "; 
+                console.log("Buffer content before processing:", accumulatedFinalTranscript);
 
-                for (let spokenWord of wordsToProcess) {
-                    if (!isRecognizing || currentWordIndex >= wordSpans.length) break;
+                let wordsFromBuffer = accumulatedFinalTranscript.trim().split(/\s+/);
+                let wordsProcessedSuccessfullyFromBuffer = 0;
+                let mismatchOccurred = false;
 
+                for (let j = 0; j < wordsFromBuffer.length; j++) {
+                    if (currentWordIndex >= wordSpans.length || !isRecognizing) break;
+
+                    const spokenWord = wordsFromBuffer[j];
                     const normalizedSpokenWord = normalizeArabic(spokenWord);
-                    if (!normalizedSpokenWord) continue; 
+                    
+                    if (!normalizedSpokenWord) { 
+                        wordsProcessedSuccessfullyFromBuffer++; 
+                        continue;
+                    }
 
                     const targetWordSpan = wordSpans[currentWordIndex];
                     const targetWordText = targetWordSpan.dataset.word;
@@ -343,31 +284,32 @@
                         targetWordSpan.classList.remove('spoken');
                         targetWordSpan.classList.add('highlight');
                         currentWordIndex++;
-                        processedWordsFromBuffer++;
+                        wordsProcessedSuccessfullyFromBuffer++;
                         
                         if (currentWordIndex < wordSpans.length && isRecognizing) {
-                             speechStatus.textContent = "الكلمة التالية...";
+                             speechStatus.textContent = "الكلمة التالية: " + wordSpans[currentWordIndex].textContent;
                         }
                     } else {
-                        // Mismatch, stop processing this batch of words from buffer
-                        // The mismatched word and subsequent words remain in accumulatedFinalTranscript for next attempt.
-                        console.log(`Mismatch or partial: Spoken="${normalizedSpokenWord}" vs Target="${targetWordText}". Buffer: "${accumulatedFinalTranscript}"`);
+                        console.log(`Mismatch: Spoken="${spokenWord}" (normalized: "${normalizedSpokenWord}") vs Target="${targetWordSpan.textContent}" (normalized: "${targetWordText}").`);
+                        speechStatus.textContent = `لم تطابق: "${spokenWord}". المتوقع: "${targetWordSpan.textContent}". حاول مرة أخرى.`;
+                        mismatchOccurred = true;
                         break; 
                     }
                 }
-                
-                // Clean up the processed words from the beginning of accumulatedFinalTranscript
-                if (processedWordsFromBuffer > 0) {
-                    accumulatedFinalTranscript = wordsToProcess.slice(processedWordsFromBuffer).join(" ") + " ";
-                    if (accumulatedFinalTranscript.trim() === "") accumulatedFinalTranscript = ""; // Ensure it's empty if all processed
-                }
 
+                if (mismatchOccurred) {
+                    console.log("Mismatch occurred. Clearing accumulated transcript.");
+                    accumulatedFinalTranscript = ""; 
+                } else if (wordsProcessedSuccessfullyFromBuffer > 0) {
+                    accumulatedFinalTranscript = wordsFromBuffer.slice(wordsProcessedSuccessfullyFromBuffer).join(" ").trim();
+                    if (accumulatedFinalTranscript) accumulatedFinalTranscript += " "; 
+                    console.log("Buffer after processing:", accumulatedFinalTranscript);
+                }
 
                 if (currentWordIndex >= wordSpans.length) {
                     speechStatus.textContent = "أحسنت! لقد أكملت السورة.";
                     if (isRecognizing) {
                         console.log("All words matched, stopping recognition.");
-                        // userManuallyStopped = false; // Not a manual stop, completion. onend will handle correctly.
                         recognition.stop(); 
                     }
                 }
@@ -382,36 +324,27 @@
     }
 
     function toggleSpeechRecognition() {
-        clearTimeout(restartTimeoutId); // Cancel any pending auto-restart immediately
-
         if (!SpeechRecognition) {
             console.warn("toggleSpeechRecognition: SpeechRecognition API not supported.");
             return;
         }
-        console.log(`toggleSpeechRecognition called. Current state: isRecognizing = ${isRecognizing}`);
 
         if (isRecognizing) {
-            console.log("toggleSpeechRecognition: User stopping. Setting userManuallyStopped=true.");
-            userManuallyStopped = true; 
-            recognition.stop(); // onend will be called, see userManuallyStopped=true, and not auto-restart.
-        } else { // Not recognizing, user wants to start
+            console.log("toggleSpeechRecognition: User stopping recognition.");
+            recognition.stop(); 
+        } else { 
             if (currentWordIndex >= wordSpans.length) {
-                console.log("toggleSpeechRecognition: Sura complete, resetting activity before starting new session.");
-                resetActivity(); // This resets state (e.g. currentWordIndex) and ensures clean UI for a new start.
-                                 // resetActivity also sets userManuallyStopped = true, then calls stop if needed.
-                                 // onend (if called by resetActivity's stop()) will see userManuallyStopped=true.
+                console.log("toggleSpeechRecognition: Sura complete, resetting activity before new start.");
+                resetActivity(); 
             }
-            // Whether reset or not, we are now intending to start.
-            console.log("toggleSpeechRecognition: User starting. Setting userManuallyStopped=false.");
-            userManuallyStopped = false; // Explicitly intend to listen (and allow auto-restarts if needed)
+            console.log("toggleSpeechRecognition: User starting recognition.");
             try {
-                accumulatedFinalTranscript = ""; // Clear buffer for fresh start
-                recognition.start(); // onstart will set isRecognizing = true and update UI.
+                accumulatedFinalTranscript = ""; // Clear any stale buffer before a fresh start attempt
+                recognition.start(); 
             } catch (e) {
                 console.error("toggleSpeechRecognition: Error calling recognition.start():", e);
                 speechStatus.textContent = "خطأ في بدء التعرف: " + e.message;
                 isRecognizing = false; 
-                userManuallyStopped = true; // If start fails, treat as a stop.
                 speechButton.textContent = "🎤 ابدأ التحدث";
                 speechButton.style.backgroundColor = '#007BFF';
             }
@@ -420,36 +353,27 @@
 
     function resetActivity() {
         console.log("resetActivity called.");
-        clearTimeout(restartTimeoutId); // Cancel any pending auto-restart
-
         currentWordIndex = 0;
-        accumulatedFinalTranscript = "";
+        accumulatedFinalTranscript = ""; 
         wordSpans.forEach(span => {
-            span.style.visibility = 'hidden'; // Explicitly hide
+            span.style.visibility = 'hidden';
             span.classList.remove('highlight', 'spoken');
         });
         
-        userManuallyStopped = true; // This stop is intentional from reset, should not auto-restart.
-        
         if (isRecognizing) {
             console.log("resetActivity: Recognition was active, calling recognition.stop().");
-            recognition.stop(); // onend will fire. It will see userManuallyStopped = true and not auto-restart.
-                                // onend will then handle UI updates (button text, status).
+            recognition.stop(); 
         } else {
-            // Not currently recognizing (e.g. initial page load, or already stopped).
-            // onend won't fire, so set UI directly to clean "ready to start" state.
             console.log("resetActivity: Recognition not active. Resetting UI directly.");
             speechButton.textContent = "🎤 ابدأ التحدث";
             speechButton.style.backgroundColor = '#007BFF';
             speechStatus.textContent = "اضغط \"ابدأ\" وتحدث";
-            isRecognizing = false; // Ensure consistency
-            // userManuallyStopped remains true from above; next explicit start will set it to false.
         }
     }
 
     // Initial setup call on page load
     resetActivity();
-    console.log("Page loaded. Initial reset done. Ready for user to start.");
+    console.log("Page loaded. Initial reset done.");
 
 </script>
 </body>
