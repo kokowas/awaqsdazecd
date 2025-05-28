@@ -173,81 +173,12 @@
 
     function normalizeArabic(text) {
         if (!text) return "";
-        // Remove all diacritics (tashkeel)
-        text = text.replace(/[\u064B-\u0652\u0670\u0640]/g, "");
-        // Normalize different forms of alif
         text = text.replace(/[إأآٱ]/g, "ا");
-        // Normalize yaa variations
-        text = text.replace(/[ىئي]/g, "ي");
-        // Normalize waw variations
-        text = text.replace(/[ؤو]/g, "و");
-        // Normalize taa marbouta and haa
-        text = text.replace(/[ةه]/g, "ه");
-        // Remove extra spaces and trim
-        text = text.replace(/\s+/g, " ").trim();
-        return text;
-    }
-
-    function isWordMatch(spoken, target) {
-        if (!spoken || !target) return false;
-        
-        const normalizedSpoken = normalizeArabic(spoken);
-        const normalizedTarget = normalizeArabic(target);
-        
-        // Exact match
-        if (normalizedSpoken === normalizedTarget) return true;
-        
-        // Check if spoken word contains the target (for longer pronunciations)
-        if (normalizedSpoken.includes(normalizedTarget) || normalizedTarget.includes(normalizedSpoken)) return true;
-        
-        // Check similarity for short words (2-3 characters)
-        if (normalizedTarget.length <= 3) {
-            return calculateSimilarity(normalizedSpoken, normalizedTarget) >= 0.7;
-        }
-        
-        // Check similarity for longer words
-        return calculateSimilarity(normalizedSpoken, normalizedTarget) >= 0.8;
-    }
-
-    function calculateSimilarity(str1, str2) {
-        if (str1 === str2) return 1.0;
-        if (!str1 || !str2) return 0.0;
-        
-        const longer = str1.length > str2.length ? str1 : str2;
-        const shorter = str1.length > str2.length ? str2 : str1;
-        
-        if (longer.length === 0) return 1.0;
-        
-        const editDistance = getEditDistance(longer, shorter);
-        return (longer.length - editDistance) / longer.length;
-    }
-
-    function getEditDistance(str1, str2) {
-        const matrix = [];
-        
-        for (let i = 0; i <= str2.length; i++) {
-            matrix[i] = [i];
-        }
-        
-        for (let j = 0; j <= str1.length; j++) {
-            matrix[0][j] = j;
-        }
-        
-        for (let i = 1; i <= str2.length; i++) {
-            for (let j = 1; j <= str1.length; j++) {
-                if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-                    matrix[i][j] = matrix[i - 1][j - 1];
-                } else {
-                    matrix[i][j] = Math.min(
-                        matrix[i - 1][j - 1] + 1,
-                        matrix[i][j - 1] + 1,
-                        matrix[i - 1][j] + 1
-                    );
-                }
-            }
-        }
-        
-        return matrix[str2.length][str1.length];
+        text = text.replace(/ى/g, "ي");
+        text = text.replace(/ؤ/g, "و");
+        text = text.replace(/ئ/g, "ي");
+        text = text.replace(/ة/g, "ه");
+        return text.trim();
     }
 
     wordSpans.forEach(span => {
@@ -406,10 +337,7 @@
                     const targetWordSpan = wordSpans[currentWordIndex];
                     const targetWordText = targetWordSpan.dataset.word;
 
-                    console.log(`Comparing: Spoken="${normalizedSpokenWord}" with Target="${targetWordText}" (idx: ${currentWordIndex})`);
-
-                    if (isWordMatch(normalizedSpokenWord, targetWordText)) {
-                        console.log("Match found!");
+                    if (targetWordText && normalizedSpokenWord === targetWordText) {
                         const previouslyHighlighted = document.querySelector('#sentence .highlight');
                         if (previouslyHighlighted && previouslyHighlighted !== targetWordSpan) {
                             previouslyHighlighted.classList.remove('highlight');
@@ -422,41 +350,6 @@
                         if (currentWordIndex < wordSpans.length && isRecognizing) {
                              speechStatus.textContent = "ممتاز! الكلمة التالية...";
                         }
-                        break; // Move to next spoken word after finding a match
-                    } else {
-                        // Try flexible matching - check if this spoken word matches any of the next few words
-                        let foundMatch = false;
-                        for (let lookahead = 1; lookahead <= 2 && currentWordIndex + lookahead < wordSpans.length; lookahead++) {
-                            const nextTargetSpan = wordSpans[currentWordIndex + lookahead];
-                            const nextTargetText = nextTargetSpan.dataset.word;
-                            
-                            if (isWordMatch(normalizedSpokenWord, nextTargetText)) {
-                                console.log(`Found match with lookahead ${lookahead}`);
-                                // Mark skipped words as spoken and highlight the matched word
-                                for (let skip = 0; skip < lookahead; skip++) {
-                                    const skippedSpan = wordSpans[currentWordIndex + skip];
-                                    skippedSpan.classList.add('spoken');
-                                    skippedSpan.style.visibility = 'visible';
-                                }
-                                
-                                const previouslyHighlighted = document.querySelector('#sentence .highlight');
-                                if (previouslyHighlighted && previouslyHighlighted !== nextTargetSpan) {
-                                    previouslyHighlighted.classList.remove('highlight');
-                                    previouslyHighlighted.classList.add('spoken');
-                                }
-                                nextTargetSpan.classList.remove('spoken');
-                                nextTargetSpan.classList.add('highlight');
-                                currentWordIndex += lookahead + 1;
-                                
-                                if (currentWordIndex < wordSpans.length && isRecognizing) {
-                                    speechStatus.textContent = "ممتاز! الكلمة التالية...";
-                                }
-                                foundMatch = true;
-                                break;
-                            }
-                        }
-                        
-                        if (foundMatch) break;
                     }
                 }
 
